@@ -1,0 +1,568 @@
+<?php
+/**
+ * @var $block \MagoArab\CdnIntegration\Block\Adminhtml\System\Config\UrlAnalyzer
+ */
+?>
+<div class="actions actions-analyze-urls">
+    <?= $block->getButtonHtml() ?>
+</div>
+
+<div id="url-analyzer-results" style="display: none; margin-top: 20px; padding: 15px; background: #f8f8f8; border: 1px solid #ddd;">
+    <h4><?= __('URLs Found') ?></h4>
+    <p><?= __('Select the URLs you want to serve via CDN:') ?></p>
+    <div class="url-list" style="max-height: 300px; overflow-y: auto; margin: 10px 0; padding: 10px; background: #fff; border: 1px solid #eee;"></div>
+    <div class="url-actions" style="margin-top: 10px;">
+        <button type="button" id="select-all-urls" class="action-secondary"><?= __('Select All') ?></button>
+        <button type="button" id="add-selected-urls" class="action-primary"><?= __('Add Selected URLs') ?></button>
+        <button type="button" id="upload-to-github" class="action-primary"><?= __('Upload to GitHub') ?></button>
+    </div>
+    <div id="upload-progress" style="margin-top: 10px; display: none;">
+        <div class="progress-status"></div>
+        <div class="progress-bar-container" style="height: 20px; background-color: #eee; border-radius: 2px; margin-top: 5px;">
+            <div class="progress-bar" style="height: 100%; width: 0; background-color: #5cb85c; border-radius: 2px; transition: width 0.3s ease;"></div>
+        </div>
+        <div class="upload-details" style="margin-top: 8px; font-size: 12px; display: none;">
+            <div class="upload-stats" style="margin-bottom: 3px;"></div>
+            <div class="current-file-container">
+                <span class="current-file-label"><?= __('Current file') ?>:</span> 
+                <span class="current-file" style="font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; max-width: 80%; vertical-align: bottom;"></span>
+            </div>
+        </div>
+    </div>
+    <div id="upload-result" style="margin-top: 10px; display: none;"></div>
+    <div id="debug-info" style="margin-top: 10px; border-top: 1px dashed #ccc; padding-top: 10px; display: block;">
+        <h4><?= __('Debug Information') ?></h4>
+        <div class="debug-content" style="max-height: 200px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 12px; background: #f5f5f5; padding: 10px;"></div>
+    </div>
+</div>
+
+<script>
+require([
+    'jquery',
+    'Magento_Ui/js/modal/modal',
+    'Magento_Ui/js/modal/confirm',
+    'Magento_Ui/js/modal/alert',
+    'mage/translate'
+], function ($, modal, confirm, alert, $t) {
+    'use strict';
+
+    // Debug log function
+    function debugLog(message, data) {
+        var timestamp = new Date().toISOString();
+        var logMessage = '[' + timestamp + '] ' + message;
+        if (data) {
+            if (typeof data === 'object') {
+                logMessage += '\n' + JSON.stringify(data, null, 2);
+            } else {
+                logMessage += '\n' + data;
+            }
+        }
+        console.log('[CDN Debug] ' + logMessage);
+        
+        // Add to debug panel
+        var $debugContent = $('#debug-info .debug-content');
+        $debugContent.append(logMessage + '\n\n');
+        $('#debug-info').show();
+        
+        // Scroll to bottom
+        $debugContent.scrollTop($debugContent[0].scrollHeight);
+    }
+
+    // Init debug panel
+    $('#debug-info .debug-content').empty();
+    debugLog('Debug initialized. PHP version: <?= phpversion() ?>');
+    debugLog('Form Key: ' + window.FORM_KEY);
+    
+    // Log URLs for debugging
+    var analyzeUrl = '<?= $block->escapeJs($block->getAjaxUrl()) ?>';
+    var uploadUrl = '<?= $block->escapeJs($block->getUrl('magoarab_cdn/cdn/uploadToGithub', ['_secure' => true])) ?>';
+    debugLog('Analyze URL: ' + analyzeUrl);
+    debugLog('Upload URL: ' + uploadUrl);
+
+    // Prevent form submission when clicking buttons
+    $(document).on('click', '#select-all-urls, #add-selected-urls, #upload-to-github', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+    });
+
+    $('#analyze_urls_button').click(function (event) {
+        event.preventDefault();
+
+        $(this).prop('disabled', true);
+        $(this).text($t('Analyzing...'));
+        
+        debugLog('Starting URL analysis');
+
+        $.ajax({
+            url: analyzeUrl,
+            type: 'POST',
+            dataType: 'json',
+            data: {
+                form_key: window.FORM_KEY,
+                store_url: '<?= $block->escapeJs($block->getStoreUrl()) ?>'
+            },
+            showLoader: true,
+            success: function (response) {
+                debugLog('Analysis AJAX success', response);
+                if (response.success) {
+                    // Show results section
+                    $('#url-analyzer-results').show();
+                    
+                    // Clear previous results
+                    $('#url-analyzer-results .url-list').empty();
+                    $('#upload-result').hide();
+                    
+                    // Hide progress
+                    $('#upload-progress').hide();
+                    
+                    // Add each URL as a checkbox
+                    if (response.urls && response.urls.length > 0) {
+                        debugLog('Found ' + response.urls.length + ' URLs');
+                        $.each(response.urls, function(index, url) {
+                            $('#url-analyzer-results .url-list').append(
+                                '<div class="url-item" style="margin-bottom: 5px;">' +
+                                '<input type="checkbox" id="url-' + index + '" value="' + url + '" /> ' +
+                                '<label for="url-' + index + '">' + url + '</label>' +
+                                '</div>'
+                            );
+                        });
+                    } else {
+                        debugLog('No URLs found');
+                        $('#url-analyzer-results .url-list').html('<p>' + $t('No suitable URLs found.') + '</p>');
+                    }
+                } else {
+                    debugLog('Analysis failed', response.message);
+                    alert({
+                        title: $t('Error'),
+                        content: response.message
+                    });
+                    $('#url-analyzer-results').hide();
+                }
+            },
+            error: function (xhr, status, error) {
+                debugLog('Analysis AJAX error', { status: status, error: error, response: xhr.responseText });
+                alert({
+                    title: $t('Error'),
+                    content: $t('An error occurred while analyzing URLs: ') + error
+                });
+                $('#url-analyzer-results').hide();
+            },
+            complete: function () {
+                $('#analyze_urls_button').prop('disabled', false);
+                $('#analyze_urls_button').text($t('Analyze Storefront'));
+            }
+        });
+    });
+    
+    // Select All button
+    $(document).on('click', '#select-all-urls', function(e) {
+        e.preventDefault();
+        debugLog('Selecting all URLs');
+        $('#url-analyzer-results .url-list input[type="checkbox"]').prop('checked', true);
+        return false;
+    });
+    
+    // Add Selected URLs button
+    $(document).on('click', '#add-selected-urls', function(e) {
+        e.preventDefault();
+        var selectedUrls = [];
+        $('#url-analyzer-results .url-list input[type="checkbox"]:checked').each(function() {
+            selectedUrls.push($(this).val());
+        });
+        
+        debugLog('Adding selected URLs', selectedUrls);
+        
+        if (selectedUrls.length > 0) {
+            // Get current textarea content
+            var currentUrls = $('#magoarab_cdn_custom_urls_custom_url_list').val();
+            
+            // Add new URLs (ensure no duplicates)
+            var existingUrls = currentUrls ? currentUrls.split("\n") : [];
+            var newUrls = [];
+            
+            selectedUrls.forEach(function(url) {
+                if (existingUrls.indexOf(url) === -1) {
+                    newUrls.push(url);
+                }
+            });
+            
+            var updatedUrls = currentUrls ? currentUrls + "\n" + newUrls.join("\n") : newUrls.join("\n");
+            
+            // Update textarea
+            $('#magoarab_cdn_custom_urls_custom_url_list').val(updatedUrls);
+            
+            debugLog('Added ' + newUrls.length + ' URLs to custom list');
+            
+            alert({
+                title: $t('Success'),
+                content: $t('Added %1 URLs to the custom URL list.').replace('%1', newUrls.length)
+            });
+        } else {
+            debugLog('No URLs selected');
+            alert({
+                title: $t('Information'),
+                content: $t('Please select at least one URL.')
+            });
+        }
+        return false;
+    });
+    
+    // Improved Upload to GitHub button with batch processing and detailed progress
+    $(document).on('click', '#upload-to-github', function(e) {
+        e.preventDefault();
+        
+        var selectedUrls = [];
+        $('#url-analyzer-results .url-list input[type="checkbox"]:checked').each(function() {
+            selectedUrls.push($(this).val());
+        });
+        
+        debugLog('Selected URLs for upload', selectedUrls);
+        
+        if (selectedUrls.length > 0) {
+            // Show confirmation dialog
+            confirm({
+                title: $t('Confirm Upload'),
+                content: $t('Do you want to upload %1 selected files to GitHub?').replace('%1', selectedUrls.length),
+                actions: {
+                    confirm: function() {
+                        // Disable button and show progress
+                        $('#upload-to-github').prop('disabled', true);
+                        $('#upload-to-github').text($t('Uploading...'));
+                        
+                        // Show progress indicator and reset
+                        $('#upload-progress').show();
+                        $('#upload-progress .progress-status').text($t('Initializing upload...'));
+                        $('#upload-progress .progress-bar').css('width', '0%');
+                        $('#upload-progress .upload-details').show();
+                        $('#upload-progress .upload-stats').text($t('Preparing files...'));
+                        $('#upload-progress .current-file').text('');
+                        
+                        // Reset results area
+                        $('#upload-result').hide();
+                        
+                        debugLog('Starting upload to GitHub', {
+                            url: uploadUrl,
+                            formKey: window.FORM_KEY,
+                            urlCount: selectedUrls.length
+                        });
+                        
+                        // Setup upload tracking
+                        var totalFiles = selectedUrls.length;
+                        var processedFiles = 0;
+                        var successfulFiles = 0;
+                        var failedFiles = 0;
+                        var startTime = new Date().getTime();
+                        var results = {
+                            details: []
+                        };
+                        
+                        // Process in batches to prevent server overload
+                        var batchSize = 10; // Process 10 files at a time
+                        var batches = [];
+                        
+                        // Split files into batches
+                        for (var i = 0; i < selectedUrls.length; i += batchSize) {
+                            batches.push(selectedUrls.slice(i, i + batchSize));
+                        }
+                        
+                        debugLog('Split upload into ' + batches.length + ' batches of max ' + batchSize + ' files each');
+                        
+                        // Process batches sequentially
+                        processBatch(0);
+                        
+                        function processBatch(batchIndex) {
+                            if (batchIndex >= batches.length) {
+                                // All batches completed
+                                uploadCompleted();
+                                return;
+                            }
+                            
+                            var currentBatch = batches[batchIndex];
+                            var batchProgress = 0;
+                            var batchSuccesses = 0;
+                            var batchFailures = 0;
+                            var batchResults = [];
+                            
+                            // Update progress status
+                            var overallProgress = Math.round((processedFiles / totalFiles) * 100);
+                            $('#upload-progress .progress-bar').css('width', overallProgress + '%');
+                            $('#upload-progress .progress-status').text(
+                                $t('Processing batch %1 of %2 (%3%)').replace('%1', batchIndex + 1)
+                                .replace('%2', batches.length).replace('%3', overallProgress)
+                            );
+                            
+                            $('#upload-progress .upload-stats').html(
+                                $t('Processed: %1/%2 | Success: %3 | Failed: %4').replace('%1', processedFiles)
+                                .replace('%2', totalFiles).replace('%3', successfulFiles).replace('%4', failedFiles)
+                            );
+                            
+                            // Calculate progress so far
+                            var elapsedSecs = Math.round((new Date().getTime() - startTime) / 1000);
+                            var filePerSec = processedFiles > 0 ? (processedFiles / elapsedSecs).toFixed(2) : 0;
+                            var remainingSecs = filePerSec > 0 ? Math.round((totalFiles - processedFiles) / filePerSec) : 0;
+                            
+                            var timeStats = '';
+                            if (processedFiles > 0) {
+                                timeStats = '<br>' + $t('Elapsed: %1s | Remaining: ~%2s | Speed: %3 files/sec')
+                                    .replace('%1', elapsedSecs)
+                                    .replace('%2', remainingSecs)
+                                    .replace('%3', filePerSec);
+                                $('#upload-progress .upload-stats').append(timeStats);
+                            }
+                            
+                            debugLog('Processing batch ' + (batchIndex + 1) + ' of ' + batches.length, currentBatch);
+                            
+                            // Process each URL in this batch in parallel
+                            var batchRequests = [];
+                            
+                            $.each(currentBatch, function(index, url) {
+                                // Update current file display
+                                $('#upload-progress .current-file').text(url);
+                                
+                                // Create deferred object for this file
+                                var dfd = $.Deferred();
+                                batchRequests.push(dfd.promise());
+                                
+                                // Upload single file
+                                $.ajax({
+                                    url: uploadUrl,
+                                    type: 'POST',
+                                    dataType: 'json',
+                                    data: {
+                                        form_key: window.FORM_KEY,
+                                        urls: JSON.stringify([url]), // Send as array with single item
+                                        single_file: true // Flag for server to handle single file upload
+                                    },
+                                    success: function(response) {
+                                        processedFiles++;
+                                        batchProgress++;
+                                        
+                                        // Process result
+                                        if (response.success && response.results && 
+                                            response.results.details && response.results.details.length > 0) {
+                                            
+                                            var fileResult = response.results.details[0];
+                                            if (fileResult.success) {
+                                                successfulFiles++;
+                                                batchSuccesses++;
+                                                debugLog('File upload success: ' + url);
+                                            } else {
+                                                failedFiles++;
+                                                batchFailures++;
+                                                debugLog('File upload failed: ' + url, fileResult.message);
+                                            }
+                                            
+                                            // Add to results
+                                            results.details.push(fileResult);
+                                            
+                                            // Update progress immediately
+                                            var currentProgress = Math.round((processedFiles / totalFiles) * 100);
+                                            $('#upload-progress .progress-bar').css('width', currentProgress + '%');
+                                            
+                                            $('#upload-progress .upload-stats').html(
+                                                $t('Processed: %1/%2 | Success: %3 | Failed: %4').replace('%1', processedFiles)
+                                                .replace('%2', totalFiles).replace('%3', successfulFiles).replace('%4', failedFiles)
+                                            );
+                                            
+                                            // Add time stats if available
+                                            if (processedFiles > 0) {
+                                                var elapsedSecs = Math.round((new Date().getTime() - startTime) / 1000);
+                                                var filePerSec = (processedFiles / elapsedSecs).toFixed(2);
+                                                var remainingSecs = Math.round((totalFiles - processedFiles) / filePerSec);
+                                                
+                                                var timeStats = '<br>' + $t('Elapsed: %1s | Remaining: ~%2s | Speed: %3 files/sec')
+                                                    .replace('%1', elapsedSecs)
+                                                    .replace('%2', remainingSecs)
+                                                    .replace('%3', filePerSec);
+                                                $('#upload-progress .upload-stats').append(timeStats);
+                                            }
+                                        } else {
+                                            // API returned success but no valid details
+                                            failedFiles++;
+                                            batchFailures++;
+                                            
+                                            debugLog('File upload missing details: ' + url, response);
+                                            
+                                            // Add generic result
+                                            results.details.push({
+                                                url: url,
+                                                success: false,
+                                                message: response.message || $t('Unknown error')
+                                            });
+                                        }
+                                        
+                                        // Resolve this file's promise
+                                        dfd.resolve();
+                                    },
+                                    error: function(xhr, status, error) {
+                                        processedFiles++;
+                                        batchProgress++;
+                                        failedFiles++;
+                                        batchFailures++;
+                                        
+                                        debugLog('File upload AJAX error: ' + url, { 
+                                            status: status, 
+                                            error: error, 
+                                            response: xhr.responseText
+                                        });
+                                        
+                                        // Add error result
+                                        results.details.push({
+                                            url: url,
+                                            success: false,
+                                            message: $t('AJAX error: %1').replace('%1', error)
+                                        });
+                                        
+                                        // Update progress UI
+                                        var currentProgress = Math.round((processedFiles / totalFiles) * 100);
+                                        $('#upload-progress .progress-bar').css('width', currentProgress + '%');
+                                        
+                                        $('#upload-progress .upload-stats').html(
+                                            $t('Processed: %1/%2 | Success: %3 | Failed: %4').replace('%1', processedFiles)
+                                            .replace('%2', totalFiles).replace('%3', successfulFiles).replace('%4', failedFiles)
+                                        );
+                                        
+                                        // Resolve this file's promise (even though it failed)
+                                        dfd.resolve();
+                                    }
+                                });
+                            });
+                            
+                            // When all files in this batch are processed, move to next batch
+                            $.when.apply($, batchRequests).then(function() {
+                                debugLog('Batch ' + (batchIndex + 1) + ' completed', {
+                                    processed: batchProgress,
+                                    success: batchSuccesses,
+                                    failed: batchFailures
+                                });
+                                
+                                // Small delay before next batch to allow server to breathe
+                                setTimeout(function() {
+                                    processBatch(batchIndex + 1);
+                                }, 500);
+                            });
+                        }
+                        
+                        function uploadCompleted() {
+                            debugLog('All batches completed', {
+                                totalFiles: totalFiles,
+                                processed: processedFiles,
+                                successful: successfulFiles,
+                                failed: failedFiles,
+                                elapsedTime: Math.round((new Date().getTime() - startTime) / 1000) + 's'
+                            });
+                            
+                            // Update progress to 100%
+                            $('#upload-progress .progress-bar').css('width', '100%');
+                            $('#upload-progress .progress-status').text($t('Upload completed'));
+                            
+                            // Final stats update
+                            var elapsedSecs = Math.round((new Date().getTime() - startTime) / 1000);
+                            var filePerSec = (processedFiles / elapsedSecs).toFixed(2);
+                            
+                            $('#upload-progress .upload-stats').html(
+                                $t('Completed: %1/%2 | Success: %3 | Failed: %4').replace('%1', processedFiles)
+                                .replace('%2', totalFiles).replace('%3', successfulFiles).replace('%4', failedFiles) +
+                                '<br>' + $t('Total time: %1s | Avg speed: %2 files/sec')
+                                .replace('%1', elapsedSecs)
+                                .replace('%2', filePerSec)
+                            );
+                            
+                            // Clear current file display
+                            $('#upload-progress .current-file').text($t('Completed'));
+                            
+                            // Format results for display
+                            if (results.details && results.details.length > 0) {
+                                var successMessage = $t('Upload completed with %1 successful and %2 failed files.')
+                                    .replace('%1', successfulFiles).replace('%2', failedFiles);
+                                
+                                successMessage += '<br><br><strong>' + $t('Upload Details:') + '</strong><br>';
+                                successMessage += '<div style="max-height: 300px; overflow-y: auto; margin-top: 10px;">';
+                                successMessage += '<table class="data-table" style="width:100%">';
+                                successMessage += '<thead><tr>' +
+                                    '<th>' + $t('URL') + '</th>' +
+                                    '<th>' + $t('Status') + '</th>' +
+                                    '</tr></thead><tbody>';
+                                
+                                $.each(results.details, function(index, detail) {
+                                    var statusClass = detail.success ? 'success' : 'error';
+                                    var statusText = detail.success ? '✓ ' + $t('Success') : '✗ ' + $t('Failed');
+                                    var statusStyle = detail.success ? 'color:green;' : 'color:red;';
+                                    var statusMessage = detail.message ? '<br><small>' + detail.message + '</small>' : '';
+                                    
+                                    successMessage += '<tr>' +
+                                        '<td style="word-break: break-all;">' + detail.url + '</td>' +
+                                        '<td style="' + statusStyle + '">' + statusText + statusMessage + '</td>' +
+                                        '</tr>';
+                                });
+                                
+                                successMessage += '</tbody></table>';
+                                successMessage += '</div>';
+                                
+                                // Display results
+                                $('#upload-result').html(successMessage).show();
+                                
+                                // If there are successful uploads, ask if user wants to add them to custom list
+                                if (successfulFiles > 0) {
+                                    confirm({
+                                        title: $t('Upload Successful'),
+                                        content: $t('Do you want to add the successful URLs to your custom URL list?'),
+                                        actions: {
+                                            confirm: function() {
+                                                // Get successful URLs
+                                                var successfulUrls = [];
+                                                $.each(results.details, function(index, detail) {
+                                                    if (detail.success) {
+                                                        successfulUrls.push(detail.url);
+                                                    }
+                                                });
+                                                
+                                                debugLog('Adding successful URLs to custom list', successfulUrls);
+                                                
+                                                // Add URLs to custom list
+                                                var currentUrls = $('#magoarab_cdn_custom_urls_custom_url_list').val();
+                                                
+                                                // Add new URLs (ensure no duplicates)
+                                                var existingUrls = currentUrls ? currentUrls.split("\n") : [];
+                                                var newUrls = [];
+                                                
+                                                successfulUrls.forEach(function(url) {
+                                                    if (existingUrls.indexOf(url) === -1) {
+                                                        newUrls.push(url);
+                                                    }
+                                                });
+                                                
+                                                var updatedUrls = currentUrls ? currentUrls + "\n" + newUrls.join("\n") : newUrls.join("\n");
+                                                
+                                                // Update textarea
+                                                $('#magoarab_cdn_custom_urls_custom_url_list').val(updatedUrls);
+                                                
+                                                alert({
+                                                    title: $t('Success'),
+                                                    content: $t('URLs added to custom list.')
+                                                });
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+                            
+                            // Reset upload button
+                            $('#upload-to-github').prop('disabled', false);
+                            $('#upload-to-github').text($t('Upload to GitHub'));
+                        }
+                    }
+                }
+            });
+        } else {
+            debugLog('No URLs selected for upload');
+            alert({
+                title: $t('Information'),
+                content: $t('Please select at least one URL to upload.')
+            });
+        }
+        return false;
+    });
+});
+</script>

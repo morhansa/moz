@@ -1,0 +1,76 @@
+<?php
+/**
+ * @var $block \MagoArab\CdnIntegration\Block\Adminhtml\System\Config\ViewLog
+ */
+?>
+<div class="actions actions-view-log">
+    <?= $block->getButtonHtml() ?>
+</div>
+
+<script>
+require([
+    'jquery',
+    'Magento_Ui/js/modal/modal',
+    'mage/translate'
+], function ($, modal, $t) {
+    'use strict';
+
+    var logModalHtml = '<div id="magoarab-cdn-log-modal">' +
+        '<div class="log-content" style="max-height: 400px; overflow: auto; white-space: pre; font-family: monospace;"></div>' +
+        '</div>';
+
+    var logModal = $(logModalHtml);
+    var logContent = logModal.find('.log-content');
+    
+    modal({
+        title: $t('CDN Integration Log'),
+        innerScroll: true,
+        buttons: [{
+            text: $t('Close'),
+            class: 'action-primary',
+            click: function () {
+                this.closeModal();
+            }
+        }, {
+            text: $t('Refresh'),
+            class: '',
+            click: function() {
+                loadLogData();
+            }
+        }]
+    }, logModal);
+
+    function loadLogData() {
+        logContent.html($t('Loading log data...'));
+        
+        $.ajax({
+            url: '<?= $block->escapeJs($block->getAjaxUrl()) ?>',
+            type: 'POST',
+            dataType: 'json',
+            data: {
+                form_key: window.FORM_KEY
+            },
+            success: function (response) {
+                if (response.success) {
+                    if (response.content) {
+                        logContent.html(response.content.replace(/\n/g, '<br>'));
+                    } else {
+                        logContent.html($t('Log file is empty.'));
+                    }
+                } else {
+                    logContent.html($t('Error: ') + response.message);
+                }
+            },
+            error: function () {
+                logContent.html($t('An error occurred while loading the log data.'));
+            }
+        });
+    }
+
+    $('#view_log_button').click(function (event) {
+        event.preventDefault();
+        loadLogData();
+        logModal.modal('openModal');
+    });
+});
+</script>

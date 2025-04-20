@@ -1,0 +1,365 @@
+<?php
+/**
+ * @var $block \MagoArab\CdnIntegration\Block\Adminhtml\System\Config\ValidateUrlsButton
+ */
+?>
+<div class="actions actions-validate-urls">
+    <?= $block->getButtonHtml() ?>
+    <span class="validation-indicator" id="validation_indicator"></span>
+</div>
+
+<style>
+.validation-indicator {
+    display: inline-block;
+    padding-left: 10px;
+    font-weight: bold;
+}
+.validation-indicator.success {
+    color: #006400;
+}
+.validation-indicator.warning {
+    color: #FF8C00;
+}
+.validation-indicator.error {
+    color: #e41c1c;
+}
+.progress-text {
+    margin-top: 5px;
+    font-size: 13px;
+}
+.progress-container {
+    margin-top: 10px;
+    height: 20px;
+    background-color: #f5f5f5;
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.1);
+}
+.progress-bar {
+    height: 100%;
+    width: 0%;
+    background-color: #5bc0de;
+    transition: width .6s ease;
+    color: #fff;
+    text-align: center;
+    line-height: 20px;
+    font-size: 12px;
+}
+.progress-bar.success {
+    background-color: #5cb85c;
+}
+.progress-bar.warning {
+    background-color: #f0ad4e;
+}
+.progress-bar.error {
+    background-color: #d9534f;
+}
+.validation-details {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    margin-top: 10px;
+    display: none;
+}
+.validation-details table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.validation-details th, .validation-details td {
+    padding: 8px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+.validation-details tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+.validation-details th {
+    background-color: #f2f2f2;
+}
+.validation-details .status-success {
+    color: #5cb85c;
+}
+.validation-details .status-error {
+    color: #d9534f;
+}
+.validation-details .status-exists {
+    color: #5bc0de;
+}
+</style>
+
+<div id="validation-progress" style="display: none; margin-top: 15px; padding: 10px; background: #f8f8f8; border: 1px solid #ddd;">
+    <div class="progress-text">
+        <span id="progress-status">Validating URLs...</span> 
+        <span id="progress-count"></span>
+    </div>
+    <div class="progress-container">
+        <div class="progress-bar" id="validation-progress-bar">0%</div>
+    </div>
+    <div class="validation-summary" style="margin-top: 8px;"></div>
+    <div class="validation-actions" style="margin-top: 10px;">
+        <button type="button" id="toggle-details" class="action-secondary">Show Details</button>
+    </div>
+    <div class="validation-details">
+        <table>
+            <thead>
+                <tr>
+                    <th>URL</th>
+                    <th>Status</th>
+                    <th>Message</th>
+                </tr>
+            </thead>
+            <tbody id="validation-details-body">
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+require([
+    'jquery',
+    'Magento_Ui/js/modal/alert',
+    'mage/translate'
+], function ($, alert, $t) {
+    'use strict';
+
+    $('#validate_urls_button').click(function (event) {
+        event.preventDefault();
+
+        var indicator = $('#validation_indicator');
+        indicator.removeClass('success warning error');
+        indicator.text($t('Validating...'));
+
+        // Reset and show progress container
+        $('#validation-progress').show();
+        $('#validation-progress-bar').css('width', '0%').text('0%')
+            .removeClass('success warning error');
+        $('#progress-status').text($t('Validating URLs...'));
+        $('#progress-count').text('');
+        $('.validation-summary').empty();
+        $('#validation-details-body').empty();
+        $('.validation-details').hide();
+
+        $(this).prop('disabled', true);
+        $(this).text($t('Validating...'));
+
+        // Hide previous results
+        $('#validation-results').hide();
+        $('#validation-results .results-content').empty();
+
+        // Start the validation process with progress tracking
+        validateUrlsWithProgress();
+    });
+
+    // Toggle validation details
+    $(document).on('click', '#toggle-details', function() {
+        $('.validation-details').toggle();
+        $(this).text(
+            $('.validation-details').is(':visible') ? 
+            $t('Hide Details') : $t('Show Details')
+        );
+    });
+
+    /**
+     * Custom validation function with progress tracking
+     */
+    function validateUrlsWithProgress() {
+        // Get all URLs from the custom URLs textarea
+        var customUrls = $('#magoarab_cdn_custom_urls_custom_url_list').val();
+        if (!customUrls) {
+            completeValidation({
+                success: false,
+                message: $t('No custom URLs to validate. Please add URLs first.')
+            });
+            return;
+        }
+
+        // Split URLs into array
+        var urls = customUrls.split('\n').filter(function(url) {
+            return url.trim() !== '';
+        });
+
+        if (urls.length === 0) {
+            completeValidation({
+                success: false,
+                message: $t('No valid URLs to validate.')
+            });
+            return;
+        }
+
+        var totalUrls = urls.length;
+        var processedUrls = 0;
+        var validationResults = {
+            total: totalUrls,
+            processed: 0,
+            success: 0,
+            failed: 0,
+            exists: 0,
+            details: []
+        };
+
+        // Update initial progress
+        $('#progress-count').text($t('0 of %1').replace('%1', totalUrls));
+
+        // Process URLs in batches for better UX
+        var batchSize = 5;
+        var batches = [];
+        for (var i = 0; i < urls.length; i += batchSize) {
+            batches.push(urls.slice(i, i + batchSize));
+        }
+
+        processBatch(0);
+
+        function processBatch(batchIndex) {
+            if (batchIndex >= batches.length) {
+                // All batches complete
+                completeFullValidation(validationResults);
+                return;
+            }
+
+            var batch = batches[batchIndex];
+            
+            $.ajax({
+                url: '<?= $block->escapeJs($block->getAjaxUrl()) ?>',
+                type: 'POST',
+                dataType: 'json',
+                data: {
+                    form_key: window.FORM_KEY,
+                    batch_urls: JSON.stringify(batch),
+                    batch_index: batchIndex,
+                    total_batches: batches.length
+                },
+                success: function(response) {
+                    if (response.success && response.batch_results) {
+                        // Merge batch results
+                        processedUrls += response.batch_results.processed;
+                        validationResults.processed += response.batch_results.processed;
+                        validationResults.success += response.batch_results.success;
+                        validationResults.failed += response.batch_results.failed;
+                        validationResults.exists += response.batch_results.exists;
+                        
+                        if (response.batch_results.details) {
+                            response.batch_results.details.forEach(function(detail) {
+                                validationResults.details.push(detail);
+                                addDetailRow(detail);
+                            });
+                        }
+
+                        // Update progress
+                        var progress = Math.round((processedUrls / totalUrls) * 100);
+                        $('#validation-progress-bar').css('width', progress + '%').text(progress + '%');
+                        $('#progress-count').text($t('%1 of %2').replace('%1', processedUrls).replace('%2', totalUrls));
+
+                        // Update current status
+                        $('#progress-status').text($t('Validated %1 URLs, continuing...').replace('%1', processedUrls));
+                        
+                        // Process next batch
+                        processBatch(batchIndex + 1);
+                    } else {
+                        // Error in this batch
+                        completeValidation({
+                            success: false,
+                            message: response.message || $t('An error occurred while processing batch %1').replace('%1', batchIndex)
+                        });
+                    }
+                },
+                error: function() {
+                    // Connection error
+                    completeValidation({
+                        success: false,
+                        message: $t('A connection error occurred during URL validation.')
+                    });
+                }
+            });
+        }
+    }
+
+    // Add a row to the validation details table
+    function addDetailRow(detail) {
+        var statusClass = '';
+        switch(detail.status) {
+            case 'uploaded': statusClass = 'status-success'; break;
+            case 'failed': statusClass = 'status-error'; break;
+            case 'exists': statusClass = 'status-exists'; break;
+            default: statusClass = '';
+        }
+
+        var statusText = '';
+        switch(detail.status) {
+            case 'uploaded': statusText = $t('Uploaded'); break;
+            case 'failed': statusText = $t('Failed'); break;
+            case 'exists': statusText = $t('Exists'); break;
+            default: statusText = detail.status;
+        }
+
+        $('#validation-details-body').append(
+            '<tr>' +
+            '<td>' + detail.url + '</td>' +
+            '<td class="' + statusClass + '">' + statusText + '</td>' +
+            '<td>' + detail.message + '</td>' +
+            '</tr>'
+        );
+    }
+
+    // Update UI when validation is complete
+    function completeFullValidation(results) {
+        var indicator = $('#validation_indicator');
+        var progressBar = $('#validation-progress-bar');
+        
+        // Update progress bar to 100%
+        progressBar.css('width', '100%').text('100%');
+        
+        // Set status based on results
+        if (results.failed > 0) {
+            indicator.addClass('warning');
+            progressBar.addClass('warning');
+        } else {
+            indicator.addClass('success');
+            progressBar.addClass('success');
+        }
+
+        // Update status text
+        indicator.text($t('Completed'));
+        $('#progress-status').text($t('URL validation completed'));
+        
+        // Summary message
+        var summaryMsg = $t('Validated %1 URLs: %2 Uploaded, %3 Exists, %4 Failed').replace(
+            '%1', results.processed).replace(
+            '%2', results.success).replace(
+            '%3', results.exists).replace(
+            '%4', results.failed
+        );
+        
+        $('.validation-summary').html('<strong>' + summaryMsg + '</strong>');
+        
+        // Enable the button again
+        $('#validate_urls_button').prop('disabled', false).text($t('Validate and Auto Upload'));
+    }
+
+    // Handle general validation completion or errors
+    function completeValidation(response) {
+        var indicator = $('#validation_indicator');
+        var progressBar = $('#validation-progress-bar');
+        
+        if (response.success) {
+            indicator.addClass('success');
+            progressBar.addClass('success').css('width', '100%').text('100%');
+        } else {
+            indicator.addClass('error');
+            progressBar.addClass('error').css('width', '100%').text('100%');
+            $('#progress-status').text($t('Validation Failed'));
+            $('.validation-summary').html('<strong style="color: #d9534f;">' + response.message + '</strong>');
+        }
+
+        // Enable the button again
+        $('#validate_urls_button').prop('disabled', false).text($t('Validate and Auto Upload'));
+        
+        // Show alert for errors
+        if (!response.success) {
+            alert({
+                title: $t('Error'),
+                content: response.message
+            });
+        }
+    }
+});
+</script>

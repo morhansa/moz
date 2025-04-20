@@ -1,0 +1,156 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+    <system>
+        <tab id="magoarab" translate="label" sortOrder="300">
+            <label>MagoArab</label>
+        </tab>
+        <section id="magoarab_cdn" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+            <label>CDN Integration</label>
+            <tab>magoarab</tab>
+            <resource>MagoArab_CdnIntegration::config</resource>
+            
+            <!-- 1. GENERAL CONFIGURATION -->
+            <group id="general" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>General Configuration</label>
+                <field id="enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable CDN Integration</label>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <comment>Enable or disable the CDN integration functionality.</comment>
+                </field>
+                <field id="debug_mode" translate="label comment" type="select" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Debug Mode</label>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <comment>Enable debug mode for detailed logs.</comment>
+                    <depends>
+                        <field id="enabled">1</field>
+                    </depends>
+                </field>
+                <field id="view_log" translate="label comment" type="button" sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>View Log</label>
+                    <frontend_model>MagoArab\CdnIntegration\Block\Adminhtml\System\Config\ViewLog</frontend_model>
+                    <comment>View the CDN integration log file.</comment>
+                    <depends>
+                        <field id="enabled">1</field>
+                    </depends>
+                </field>
+            </group>
+            
+            <!-- 2. GITHUB REPOSITORY SETTINGS -->
+            <group id="github_settings" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
+                <label>GitHub Repository Settings</label>
+                <comment><![CDATA[Configure your GitHub repository settings to enable file uploads.]]></comment>
+                <field id="username" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>GitHub Username</label>
+                    <comment>Enter your GitHub username.</comment>
+                    <depends>
+                        <field id="magoarab_cdn/general/enabled">1</field>
+                    </depends>
+                </field>
+                <field id="repository" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Repository Name</label>
+                    <comment>Enter the name of the repository where static files will be uploaded.</comment>
+                    <depends>
+                        <field id="magoarab_cdn/general/enabled">1</field>
+                    </depends>
+                </field>
+                <field id="branch" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Branch Name</label>
+                    <comment>Enter the branch name (default: main).</comment>
+                    <depends>
+                        <field id="magoarab_cdn/general/enabled">1</field>
+                    </depends>
+                </field>
+                <field id="token" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>GitHub Personal Access Token</label>
+                    <comment>Generate a personal access token with repo scope from GitHub Settings > Developer settings > Personal access tokens.</comment>
+                    <depends>
+                        <field id="magoarab_cdn/general/enabled">1</field>
+                    </depends>
+                </field>
+                <field id="test_connection" translate="label comment" type="button" sortOrder="50" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Test Connection</label>
+                    <frontend_model>MagoArab\CdnIntegration\Block\Adminhtml\System\Config\TestConnection</frontend_model>
+                    <comment>Test your GitHub credentials before proceeding with synchronization.</comment>
+                    <depends>
+                        <field id="magoarab_cdn/general/enabled">1</field>
+                    </depends>
+                </field>
+            </group>
+            
+            <!-- 3. CDN SETTINGS -->
+            <group id="cdn_settings" translate="label" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>CDN Settings</label>
+                <comment><![CDATA[Configure which file types should be served via CDN and manage exclusions.]]></comment>
+                <field id="file_types" translate="label comment" type="multiselect" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>File Types to Serve via CDN</label>
+                    <source_model>MagoArab\CdnIntegration\Model\Config\Source\FileTypes</source_model>
+                    <comment>Select which file types should be served via jsDelivr CDN.</comment>
+                    <depends>
+                        <field id="magoarab_cdn/general/enabled">1</field>
+                    </depends>
+                </field>
+                <field id="excluded_paths" translate="label comment" type="textarea" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Exclude Paths</label>
+                    <comment>Enter paths to exclude from CDN (one per line). Example: /js/admin/*</comment>
+                    <depends>
+                        <field id="magoarab_cdn/general/enabled">1</field>
+                    </depends>
+                </field>
+            </group>
+            
+            <!-- 4. URL ANALYZER -->
+            <group id="url_analyzer" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>URL Analyzer</label>
+                <comment><![CDATA[Use the URL Analyzer to discover resources that can be served via CDN. This tool scans your storefront and finds static assets like JavaScript, CSS, images, and fonts that are good candidates for CDN delivery.]]></comment>
+                <field id="analyze_urls" translate="label comment" type="button" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Analyze URLs</label>
+                    <frontend_model>MagoArab\CdnIntegration\Block\Adminhtml\System\Config\UrlAnalyzer</frontend_model>
+                    <comment>Click to scan your storefront pages and discover URLs that can be served via CDN. Select the URLs from the results and add them to your custom URL list or upload them directly to GitHub.</comment>
+                    <depends>
+                        <field id="magoarab_cdn/general/enabled">1</field>
+                    </depends>
+                </field>
+            </group>
+            
+            <!-- 5. CUSTOM URLS -->
+            <group id="custom_urls" translate="label" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Custom URLs</label>
+                <comment><![CDATA[Manage specific URLs you want to serve through the CDN.]]></comment>
+                <field id="custom_url_list" translate="label comment" type="textarea" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Custom URLs to Serve via CDN</label>
+                    <comment>Enter URLs or URL patterns (one per line) to be served via the CDN. You can use links from /static/ or /media/. Example: /static/frontend/Magento/luma/en_US/css/styles-m.css or /media/logo.png</comment>
+                    <depends>
+                        <field id="magoarab_cdn/general/enabled">1</field>
+                    </depends>
+                </field>
+                <field id="validate_urls" translate="label comment" type="button" sortOrder="15" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Validate Custom URLs</label>
+                    <frontend_model>MagoArab\CdnIntegration\Block\Adminhtml\System\Config\ValidateUrlsButton</frontend_model>
+                    <comment>Check if custom URLs exist on GitHub and auto-upload missing files.</comment>
+                    <depends>
+                        <field id="magoarab_cdn/general/enabled">1</field>
+                    </depends>
+                </field>
+                <field id="font_validation" translate="label comment" type="select" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Font File Validation</label>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <comment>Enable advanced validation for font files.</comment>
+                </field>
+            </group>
+            
+            <!-- 6. MAINTENANCE -->
+            <group id="maintenance" translate="label" type="text" sortOrder="60" showInDefault="1" showInWebsite="0" showInStore="0">
+                <label>Maintenance</label>
+                <comment><![CDATA[Maintenance operations for your CDN integration.]]></comment>
+                <field id="purge_cdn" translate="label comment" type="button" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Purge Cache</label>
+                    <frontend_model>MagoArab\CdnIntegration\Block\Adminhtml\System\Config\PurgeButton</frontend_model>
+                    <comment>Click to purge the jsDelivr CDN cache after updating static files. This ensures visitors see the latest version of your assets.</comment>
+                    <depends>
+                        <field id="magoarab_cdn/general/enabled">1</field>
+                    </depends>
+                </field>
+            </group>
+        </section>
+    </system>
+</config>

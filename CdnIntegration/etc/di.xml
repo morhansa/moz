@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <!-- Logger configuration -->
+    <virtualType name="MagoArabCdnIntegrationLogger" type="Magento\Framework\Logger\Monolog">
+        <arguments>
+            <argument name="name" xsi:type="string">magoarab_cdn_integration</argument>
+            <argument name="handlers" xsi:type="array">
+                <item name="system" xsi:type="object">MagoArabCdnIntegrationLoggerHandler</item>
+            </argument>
+        </arguments>
+    </virtualType>
+    
+    <virtualType name="MagoArabCdnIntegrationLoggerHandler" type="Magento\Framework\Logger\Handler\Base">
+        <arguments>
+            <argument name="fileName" xsi:type="string">/var/log/magoarab_cdn_integration.log</argument>
+        </arguments>
+    </virtualType>
+    
+    <type name="MagoArab\CdnIntegration\Helper\Data">
+        <arguments>
+            <argument name="logger" xsi:type="object">MagoArabCdnIntegrationLogger</argument>
+        </arguments>
+    </type>
+    
+    <type name="MagoArab\CdnIntegration\Model\Github\Api">
+        <arguments>
+            <argument name="logger" xsi:type="object">MagoArabCdnIntegrationLogger</argument>
+        </arguments>
+    </type>
+</config>

@@ -1,0 +1,58 @@
+<?php
+/**
+ * @var $block \MagoArab\CdnIntegration\Block\Adminhtml\System\Config\PurgeButton
+ */
+?>
+<div class="actions actions-purge-cdn">
+    <?= $block->getButtonHtml() ?>
+</div>
+
+<script>
+require([
+    'jquery',
+    'Magento_Ui/js/modal/alert',
+    'mage/translate'
+], function ($, alert, $t) {
+    'use strict';
+
+    $('#purge_cdn_button').click(function (event) {
+        event.preventDefault();
+
+        $(this).prop('disabled', true);
+        $(this).text($t('Purging...'));
+
+        $.ajax({
+            url: '<?= $block->escapeJs($block->getAjaxUrl()) ?>',
+            type: 'POST',
+            dataType: 'json',
+            data: {
+                form_key: window.FORM_KEY
+            },
+            showLoader: true,
+            success: function (response) {
+                if (response.success) {
+                    alert({
+                        title: $t('Success'),
+                        content: response.message
+                    });
+                } else {
+                    alert({
+                        title: $t('Error'),
+                        content: response.message
+                    });
+                }
+            },
+            error: function () {
+                alert({
+                    title: $t('Error'),
+                    content: $t('An error occurred while purging the CDN cache.')
+                });
+            },
+            complete: function () {
+                $('#purge_cdn_button').prop('disabled', false);
+                $('#purge_cdn_button').text($t('Purge Cache'));
+            }
+        });
+    });
+});
+</script>
